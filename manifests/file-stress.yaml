@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: file-stress
+  labels:
+    test: stress
+spec:
+  containers:
+  - name: file-stress
+    image: ubuntu:latest
+    command: ["/bin/bash"]
+    args:
+      - "-c"
+      - |
+        mkdir -p /mnt/stress/dir{1..8}
+        while true; do
+          for d in {1..8}; do
+            for i in {1..25000}; do
+              dd if=/dev/urandom of=/mnt/stress/dir$d/file$i bs=4k count=1 2>/dev/null &
+              if [ $((i % 100)) -eq 0 ]; then
+                wait
+              fi
+            done
+            wait
+            rm -rf /mnt/stress/dir$d/*
+          done
+        done
+    volumeMounts:
+    - name: test-vol
+      mountPath: /mnt/stress
+  volumes:
+  - name: test-vol
+    emptyDir: {}

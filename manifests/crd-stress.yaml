@@ -1,0 +1,103 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: crd-stress
+  labels:
+    test: stress
+spec:
+  serviceAccountName: crd-creator
+  containers:
+  - name: crd-creator
+    image: python:3.9-slim
+    command: ["/bin/bash"]
+    args:
+      - "-c"
+      - |
+        pip install kubernetes
+        cat << 'EOF' > /tmp/crd_stress.py
+        from kubernetes import client, config
+        import time
+        import uuid
+
+        config.load_incluster_config()
+        api = client.ApiextensionsV1Api()
+
+        def create_crd(name):
+            return {
+                "apiVersion": "apiextensions.k8s.io/v1",
+                "kind": "CustomResourceDefinition",
+                "metadata": {
+                    "name": f"{name}.stress.test"
+                },
+                "spec": {
+                    "group": "stress.test",
+                    "versions": [{
+                        "name": "v1",
+                        "served": True,
+                        "storage": True,
+                        "schema": {
+                            "openAPIV3Schema": {
+                                "type": "object",
+                                "properties": {
+                                    "spec": {
+                                        "type": "object",
+                                        "properties": {
+                                            "data": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }],
+                    "scope": "Namespaced",
+                    "names": {
+                        "plural": name,
+                        "singular": name,
+                        "kind": name.title(),
+                        "shortNames": [name[:3]]
+                    }
+                }
+            }
+
+        counter = 0
+        while True:
+            try:
+                name = f"stresstest{counter}-{uuid.uuid4().hex[:6]}"
+                crd = create_crd(name.lower())
+                api.create_custom_resource_definition(crd)
+                print(f"Created CRD {name}")
+                counter += 1
+            except Exception as e:
+                print(f"Error creating CRD: {e}")
+            time.sleep(0.1)  # Small delay to prevent overwhelming the API server immediately
+        EOF
+        python /tmp/crd_stress.py
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: crd-creator
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: crd-creator-role
+rules:
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["create", "delete", "get", "list", "patch", "update", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: crd-creator-binding
+subjects:
+- kind: ServiceAccount
+  name: crd-creator
+  namespace: default
+roleRef:
+  kind: ClusterRole
+  name: crd-creator-role
+  apiGroup: rbac.authorization.k8s.io
