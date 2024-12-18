@@ -5,6 +5,8 @@ metadata:
   labels:
     test: stress
 spec:
+  nodeSelector:
+    kubernetes.io/hostname: aks-agentpool-64770781-vmss00000d
   serviceAccountName: crd-creator
   containers:
   - name: crd-creator
