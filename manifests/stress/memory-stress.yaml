@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: memory-stress
+  namespace: stress-test
+spec:
+  containers:
+  - name: memory-stress
+    image: busybox
+    command: ["/bin/sh", "-c"]
+    args: ["while true; do head /dev/urandom | head -c 10000000 >> /dev/null; done"]

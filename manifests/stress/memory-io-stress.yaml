@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: memory-io-stress
+  namespace: stress-test
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: aks-iosaturation-23352495-vmss000000
+  containers:
+  - name: memory-io-stress
+    image: ubuntu
+    command: ["/bin/sh", "-c"]
+    args: 
+      - |
+        # Install stress-ng
+        apt-get update && apt-get install -y stress-ng
+        
+        # Run multiple stressors simultaneously
+        stress-ng --vm 4 --vm-bytes 80% --timeout 999999h &  # Memory pressure
+        stress-ng --iomix 4 --timeout 999999h &              # Mixed IO operations
+        stress-ng --hdd 4 --hdd-bytes 80% --timeout 999999h & # Heavy disk usage
+        stress-ng --aio 4 --aio-requests 32 --timeout 999999h & # Async IO
+        stress-ng --readahead 2 --timeout 999999h &          # Readahead stress
+        
+        # Keep container running
+        while true; do
+          sleep 1
+        done
+    resources:
+      requests:
+        memory: "1Gi"
+        cpu: "500m"
+      limits:
+        memory: "2Gi"
+        cpu: "1000m" 

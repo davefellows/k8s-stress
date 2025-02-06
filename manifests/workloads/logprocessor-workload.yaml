@@ -1,0 +1,157 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: logprocessor-workload
+  namespace: stress-test
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: aks-f16-23743720-vmss000000
+  containers:
+  - name: logprocessor
+    image: python:3.9
+    command: ["/bin/bash", "-c"]
+    args:
+    - |
+      echo "Installing required packages..."
+      pip install watchdog
+      
+      echo "Creating log generator script..."
+      cat << 'EOF' > log_generator.py
+      import time
+      import random
+      import datetime
+      import os
+      
+      def generate_log_entry():
+          endpoints = ['/api/users', '/api/orders', '/api/products', '/api/cart']
+          methods = ['GET', 'POST', 'PUT', 'DELETE']
+          status_codes = [200, 201, 400, 401, 403, 404, 500]
+          
+          return f'{datetime.datetime.now().isoformat()} - {random.choice(methods)} {random.choice(endpoints)} - {random.choice(status_codes)} - {random.randint(10, 500)}ms\n'
+      
+      print("Starting log generator...")
+      count = 0
+      while True:
+          try:
+              with open('/tmp/logs/application.log', 'a') as f:
+                  for _ in range(100):
+                      f.write(generate_log_entry())
+                      count += 1
+                  print(f"Generated {count} log entries")
+          except Exception as e:
+              print(f"Error generating logs: {e}")
+          time.sleep(0.1)
+      EOF
+      
+      echo "Creating log processor script..."
+      cat << 'EOF' > log_processor.py
+      import time
+      from watchdog.observers import Observer
+      from watchdog.events import FileSystemEventHandler
+      import datetime
+      import os
+      
+      class LogProcessor(FileSystemEventHandler):
+          def __init__(self):
+              self.total_processed = 0
+          
+          def on_modified(self, event):
+              if event.src_path.endswith('.log'):
+                  print(f"Processing file: {event.src_path}")
+                  try:
+                      with open(event.src_path, 'r') as f:
+                          lines = f.readlines()
+                      
+                      processed_data = self.analyze_logs(lines)
+                      
+                      timestamp = datetime.datetime.now().strftime('%Y%m%d-%H%M%S')
+                      output_file = f'/tmp/processed/summary-{timestamp}.log'
+                      
+                      with open(output_file, 'w') as f:
+                          for key, value in processed_data.items():
+                              f.write(f'{key}: {value}\n')
+                      
+                      self.total_processed += len(lines)
+                      print(f"Processed {len(lines)} lines (total: {self.total_processed})")
+                      print(f"Summary written to: {output_file}")
+                  except Exception as e:
+                      print(f"Error processing log file: {e}")
+          
+          def analyze_logs(self, lines):
+              stats = {
+                  'total_requests': len(lines),
+                  'status_codes': {},
+                  'endpoints': {},
+                  'avg_response_time': 0
+              }
+              
+              total_time = 0
+              for line in lines:
+                  try:
+                      parts = line.split(' - ')
+                      if len(parts) >= 3:
+                          status = parts[2].strip()
+                          stats['status_codes'][status] = stats['status_codes'].get(status, 0) + 1
+                          
+                          endpoint = parts[1].split()[1]
+                          stats['endpoints'][endpoint] = stats['endpoints'].get(endpoint, 0) + 1
+                          
+                          response_time = int(parts[3].split('ms')[0])
+                          total_time += response_time
+                  except Exception as e:
+                      print(f"Error analyzing log line: {e}")
+                      continue
+              
+              if stats['total_requests'] > 0:
+                  stats['avg_response_time'] = total_time / stats['total_requests']
+              
+              return stats
+      
+      if __name__ == "__main__":
+          print("Starting log processor...")
+          observer = Observer()
+          observer.schedule(LogProcessor(), '/tmp/logs', recursive=False)
+          observer.start()
+          
+          try:
+              while True:
+                  time.sleep(1)
+          except KeyboardInterrupt:
+              observer.stop()
+          observer.join()
+      EOF
+      
+      echo "Creating directories..."
+      mkdir -p /tmp/logs /tmp/processed
+      
+      echo "Starting log generator and processor..."
+      python log_generator.py &
+      python log_processor.py &
+      
+      echo "Starting log rotation..."
+      while true; do
+        sleep 300
+        timestamp=$(date +%Y%m%d-%H%M%S)
+        echo "Rotating logs at ${timestamp}..."
+        mv /tmp/logs/application.log "/tmp/logs/application-${timestamp}.log"
+        echo "Cleaning up old files..."
+        find /tmp/logs -type f -mmin +30 -delete
+        find /tmp/processed -type f -mmin +30 -delete
+      done
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
+    volumeMounts:
+    - name: log-volume
+      mountPath: /tmp/logs
+    - name: processed-volume
+      mountPath: /tmp/processed
+  volumes:
+  - name: log-volume
+    emptyDir: {}
+  - name: processed-volume
+    emptyDir: {} 

@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: io-stress
+  namespace: stress-test
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: aks-f16-23743720-vmss000000
+  containers:
+  - name: io-stress
+    image: ubuntu
+    securityContext:
+      privileged: true    # Required for direct hardware access and system modifications
+    command: ["/bin/bash", "-c"]  # Changed to bash for better expansion support
+    args: 
+      - |
+        # Install additional tools
+        apt-get update && apt-get install -y fio stress-ng
+        
+        # Create multiple test directories
+        mkdir -p /tmp/test{1,2,3,4,5}
+        
+        # Start multiple fio jobs for maximum IOPS with optimized block sizes
+        fio --name=random-writers1 --ioengine=libaio --rw=randwrite --bs=4k --direct=1 --size=64M \
+            --numjobs=32 --iodepth=128 --group_reporting --directory=/tmp/test1 &
+            
+        fio --name=random-writers2 --ioengine=libaio --rw=randwrite --bs=1k --direct=1 --size=32M \
+            --numjobs=32 --iodepth=128 --group_reporting --directory=/tmp/test2 &
+            
+        # Start stress-ng workers for additional IO pressure
+        stress-ng --iomix 16 --iomix-bytes 32M --timeout 999999h &
+        stress-ng --aio 32 --aio-requests 256 --timeout 999999h &
+        
+        # Aggressive dd operations with optimized block sizes
+        while true; do
+          # High IOPS with 4K blocks (common page size)
+          for i in $(seq 1 64); do
+            dd if=/dev/zero of="/tmp/test3/small${i}" bs=4k count=256 oflag=direct &
+          done
+          
+          # Mix of 1K blocks for higher IOPS
+          for i in $(seq 1 64); do
+            dd if=/dev/zero of="/tmp/test4/tiny${i}" bs=1k count=512 oflag=direct &
+          done
+          
+          # Random writes with 4K blocks
+          for i in $(seq 1 64); do
+            dd if=/dev/zero of="/tmp/test5/random${i}" bs=4k count=256 seek=$RANDOM oflag=direct &
+          done
+          
+          wait
+          rm -f /tmp/test*/*
+        done

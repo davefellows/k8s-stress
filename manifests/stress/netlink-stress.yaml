@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: netlink-stress
+  namespace: stress-test
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: aks-f16-23743720-vmss000000
+  containers:
+  - name: netlink-stress
+    image: ubuntu
+    command: ["/bin/bash", "-c"]
+    args: 
+      - |
+        apt-get update && apt-get install -y iproute2
+        while true; do
+          ip link list
+          sleep 0.1
+        done 

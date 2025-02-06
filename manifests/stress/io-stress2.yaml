@@ -1,0 +1,54 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: io-stress2
+  namespace: stress-test
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: aks-iosaturation-23352495-vmss000000
+  containers:
+  - name: io-stress2
+    image: busybox
+    command: ["/bin/sh", "-c"]
+    args: 
+      - |
+        # Create a control file to manage background processes
+        touch /tmp/running2
+        mkdir -p /tmp/test2
+        
+        # Start multiple background write processes with different block sizes
+        while [ -f /tmp/running2 ]; do
+          # Sequential writes with different block sizes
+          dd if=/dev/zero of=/tmp/test2/seq1.file bs=64k count=1000 oflag=direct & 
+          dd if=/dev/zero of=/tmp/test2/seq2.file bs=32k count=2000 oflag=direct &
+          dd if=/dev/zero of=/tmp/test2/seq3.file bs=16k count=4000 oflag=direct &
+          dd if=/dev/zero of=/tmp/test2/seq4.file bs=8k count=8000 oflag=direct &
+          
+          # Random writes (using seek to simulate random access)
+          for i in $(seq 1 5); do
+            dd if=/dev/zero of=/tmp/test2/random$i.file bs=8k count=1000 seek=$RANDOM oflag=direct &
+          done
+          
+          # Read operations in parallel
+          dd if=/tmp/test2/seq1.file of=/dev/null bs=64k iflag=direct &
+          dd if=/tmp/test2/seq2.file of=/dev/null bs=32k iflag=direct &
+          dd if=/tmp/test2/seq3.file of=/dev/null bs=16k iflag=direct &
+          dd if=/tmp/test2/seq4.file of=/dev/null bs=8k iflag=direct &
+          
+          # Small random writes (many small files)
+          for i in $(seq 1 20); do
+            dd if=/dev/zero of=/tmp/test2/small$i.file bs=4k count=100 &
+          done
+          
+          # Sync to ensure writes hit disk
+          sync &
+          
+          # Wait for all background processes to complete
+          wait
+          
+          # Clean up files periodically
+          rm -rf /tmp/test2/*
+          
+          # Minimal wait between batches
+          sleep 0.1
+        done 
