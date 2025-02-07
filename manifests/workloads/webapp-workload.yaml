@@ -1,0 +1,114 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp-workload
+  namespace: stress-test
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: aks-f16-23743720-vmss000000
+  containers:
+  - name: webapp
+    image: node:18
+    command: ["/bin/bash", "-c"]
+    args:
+    - |
+      echo "Setting up work directory..."
+      mkdir -p /app
+      cd /app
+      
+      echo "Initializing npm project..."
+      echo '{
+        "name": "file-upload-server",
+        "version": "1.0.0",
+        "main": "server.js",
+        "dependencies": {
+          "express": "^4.18.2",
+          "multer": "^1.4.5-lts.1"
+        }
+      }' > package.json
+      
+      echo "Installing dependencies..."
+      npm install
+      
+      echo "Creating server application..."
+      cat << 'EOF' > server.js
+      const express = require('express');
+      const multer = require('multer');
+      const fs = require('fs');
+      const app = express();
+      
+      const storage = multer.diskStorage({
+        destination: '/tmp/uploads/',
+        filename: (req, file, cb) => {
+          cb(null, Date.now() + '-' + file.originalname);
+        }
+      });
+      
+      const upload = multer({ storage: storage });
+      
+      app.post('/upload', upload.single('file'), (req, res) => {
+        console.log(`File uploaded: ${req.file.filename} (${req.file.size} bytes)`);
+        res.json({ message: 'File uploaded successfully' });
+      });
+      
+      app.get('/process', (req, res) => {
+        fs.readdir('/tmp/uploads', (err, files) => {
+          if (err) {
+            console.error('Error reading directory:', err);
+            return res.status(500).json({ error: err });
+          }
+          console.log(`Processing ${files.length} files`);
+          files.forEach(file => {
+            const data = fs.readFileSync('/tmp/uploads/' + file);
+            fs.writeFileSync('/tmp/processed/' + file, data);
+            console.log(`Processed file: ${file} (${data.length} bytes)`);
+          });
+          res.json({ message: 'Files processed', count: files.length });
+        });
+      });
+      
+      app.listen(3000, () => console.log('Server running on port 3000'));
+      EOF
+      
+      echo "Creating directories..."
+      mkdir -p /tmp/uploads /tmp/processed
+      
+      echo "Starting server..."
+      node server.js &
+      
+      # Wait for server to be ready
+      echo "Waiting for server to be ready..."
+      until curl -s http://localhost:3000/process > /dev/null; do
+        sleep 1
+        echo "Waiting..."
+      done
+      echo "Server is ready!"
+      
+      # Simulate continuous file uploads and processing
+      while true; do
+        echo "Starting new upload batch..."
+        for i in $(seq 1 10); do
+          size=$((RANDOM % 10 + 1))
+          echo "Generating ${size}MB test file ${i}..."
+          dd if=/dev/urandom of="/tmp/test-file-${i}" bs=1M count=$size 2>/dev/null
+          echo "Uploading test file ${i}..."
+          curl -s -X POST -F "file=@/tmp/test-file-${i}" http://localhost:3000/upload
+          rm "/tmp/test-file-${i}"
+        done
+        
+        echo "Triggering processing..."
+        curl -s http://localhost:3000/process
+        
+        echo "Cleaning up old files..."
+        find /tmp/processed -type f -mmin +5 -delete
+        find /tmp/uploads -type f -mmin +5 -delete
+        
+        sleep 2
+      done
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "250m"
+      limits:
+        memory: "1Gi"
+        cpu: "500m"
