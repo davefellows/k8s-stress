@@ -1,0 +1,88 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: java-memory-leak-nodejvm
+  namespace: stress-test
+spec:
+  nodeSelector:
+    kubernetes.io/hostname: aks-f16-23743720-vmss000000
+  initContainers:
+  - name: init
+    image: openjdk:11-jdk
+    command: ["/bin/sh"]
+    args:
+      - "-c"
+      - |
+        cat << 'EOF' > /app/Main.java
+        import java.util.*;
+
+        public class Main {
+            // Static list to prevent garbage collection
+            private static final List<byte[]> leakyList = new ArrayList<>();
+            
+            public static void main(String[] args) {
+                System.out.println("Starting Java application with node-level JVM memory leak...");
+                System.out.println("JVM is running in system mode (not container-aware)");
+                
+                // Start a monitoring thread
+                new Thread(() -> {
+                    while(true) {
+                        Runtime rt = Runtime.getRuntime();
+                        long total = rt.totalMemory();
+                        long free = rt.freeMemory();
+                        long used = total - free;
+                        long max = rt.maxMemory();
+                        System.out.printf("JVM Memory - Total: %dMB, Used: %dMB, Free: %dMB, Max: %dMB%n",
+                            total/1024/1024, used/1024/1024, free/1024/1024, max/1024/1024);
+                        try {
+                            Thread.sleep(5000);
+                        } catch (InterruptedException e) {}
+                    }
+                }).start();
+                
+                // Main loop that creates the memory leak
+                while(true) {
+                    try {
+                        // Allocate memory in chunks but don't release it
+                        byte[] chunk = new byte[1024 * 1024]; // 1MB
+                        Arrays.fill(chunk, (byte)1);
+                        leakyList.add(chunk);
+                        
+                        // Sleep briefly to make the leak gradual
+                        Thread.sleep(100);
+                    } catch (OutOfMemoryError e) {
+                        System.out.println("OutOfMemoryError caught: " + e.getMessage());
+                        // Don't exit, let it restart and continue leaking
+                        leakyList.clear();
+                        try {
+                            Thread.sleep(5000);
+                        } catch (InterruptedException ie) {}
+                    } catch (InterruptedException e) {}
+                }
+            }
+        }
+        EOF
+        javac /app/Main.java
+    volumeMounts:
+    - name: app-volume
+      mountPath: /app
+  containers:
+  - name: java-app
+    image: openjdk:11-jdk
+    command: ["java"]
+    args:
+      - "-XX:+UnlockExperimentalVMOptions"
+      - "-XX:-UseContainerSupport"  # Disable container support
+      - "-Xms4g"                    # Set initial heap to 4GB
+      - "-Xmx16g"                   # Try to use 16GB max heap
+      - "-XX:+PrintGCDetails"
+      - "-Xlog:gc*=info:file=/tmp/gc.log"
+      - "-cp"
+      - "/app"
+      - "Main"
+    volumeMounts:
+    - name: app-volume
+      mountPath: /app
+  volumes:
+  - name: app-volume
+    emptyDir: {} 

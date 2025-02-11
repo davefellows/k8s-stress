@@ -4,8 +4,43 @@ metadata:
   name: memory-stress
   namespace: stress-test
 spec:
+  nodeSelector:
+    kubernetes.io/hostname: aks-f16-23743720-vmss000000
   containers:
   - name: memory-stress
-    image: busybox
-    command: ["/bin/sh", "-c"]
-    args: ["while true; do head /dev/urandom | head -c 10000000 >> /dev/null; done"]
+    image: polinux/stress-ng:latest
+    command: ["/bin/bash"]
+    args:
+      - "-c"
+      - |
+        echo "Starting memory stress test..."
+        while true; do
+          echo "[$(date)] Running stress-ng memory stressors..."
+          
+          # Start first set of memory stressors
+          stress-ng \
+            --vm 4 --vm-bytes 4G \
+            --mmap 4 --mmap-bytes 2G \
+            --malloc 4 --malloc-bytes 2G \
+            --vm-keep --vm-method all \
+            --timeout 0 \
+            --aggressive &
+          
+          # Start second set with different sizes
+          stress-ng \
+            --vm 4 --vm-bytes 3G \
+            --mmap 4 --mmap-bytes 1G \
+            --malloc 4 --malloc-bytes 1G \
+            --vm-keep --vm-method all \
+            --timeout 0 \
+            --aggressive &
+          
+          # Wait for a while before checking status
+          sleep 30
+          
+          echo "[$(date)] Memory usage stats:"
+          free -m
+          echo "[$(date)] Process memory details:"
+          ps aux | grep stress-ng | grep -v grep
+          echo "-----------------------------------"
+        done

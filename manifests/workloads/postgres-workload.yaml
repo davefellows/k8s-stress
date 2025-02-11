@@ -16,11 +16,11 @@ spec:
       value: "testdb"
     resources:
       requests:
-        memory: "1Gi"
-        cpu: "500m"
-      limits:
         memory: "2Gi"
         cpu: "1000m"
+      limits:
+        memory: "4Gi"
+        cpu: "2000m"
     volumeMounts:
     - name: pgdata
       mountPath: /var/lib/postgresql/data
@@ -41,6 +41,13 @@ spec:
     env:
     - name: PGPASSWORD
       value: "testpassword"
+    resources:
+      requests:
+        memory: "512Mi"
+        cpu: "500m"
+      limits:
+        memory: "1Gi"
+        cpu: "1000m"
   volumes:
   - name: pgdata
     emptyDir: {} 

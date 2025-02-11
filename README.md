@@ -29,6 +29,28 @@ A memory-intensive workload designed to:
 - Consume and exercise system memory
 - Test memory management and allocation
 
+### Java Memory Leak Tests
+Two variants demonstrating different JVM memory behaviors in containers:
+
+**Container-Aware JVM** (`manifests/stress/java-memory-leak.yaml`):
+- Uses container-aware JVM configuration (`-XX:+UseContainerSupport`)
+- Respects container memory limits
+- Memory settings based on container resources
+- Demonstrates proper container memory isolation
+
+**Node-Level JVM** (`manifests/stress/java-memory-leak-nodejvm.yaml`):
+- Disables container awareness (`-XX:-UseContainerSupport`)
+- JVM sees full node resources
+- Uses fixed heap sizes (`-Xms4g -Xmx16g`)
+- Demonstrates potential memory issues when JVM isn't container-aware
+- Useful for testing container runtime OOM handling
+
+Both Java tests:
+- Create gradual memory leaks
+- Monitor JVM memory usage
+- Handle OutOfMemoryErrors
+- Generate GC logs for analysis
+
 ### Memory-IO Combined Stress Test
 **File:** `manifests/stress/memory-io-stress.yaml`
 
@@ -79,6 +101,8 @@ It's recommended to monitor node metrics when running these stress tests. Key me
 - Memory usage
 - Disk I/O rates
 - Network interface statistics
+- JVM memory metrics (for Java tests)
+- Container runtime OOM events
 
 ## Cleanup
 
