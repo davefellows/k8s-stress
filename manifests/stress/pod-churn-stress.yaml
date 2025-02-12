@@ -1,0 +1,113 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: pod-churn-stress
+  namespace: stress-test
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pod-churn-stress
+  namespace: stress-test
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["create", "delete", "get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pod-churn-stress
+  namespace: stress-test
+subjects:
+- kind: ServiceAccount
+  name: pod-churn-stress
+  namespace: stress-test
+roleRef:
+  kind: Role
+  name: pod-churn-stress
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-churn-stress
+  namespace: stress-test
+spec:
+  serviceAccountName: pod-churn-stress
+  nodeSelector:
+    kubernetes.io/hostname: aks-f16-23743720-vmss000000
+  containers:
+  - name: pod-churn
+    image: bitnami/kubectl:latest
+    command: ["/bin/bash"]
+    args:
+      - "-c"
+      - |
+        # Function to create a random pod
+        create_random_pod() {
+          local pod_name="churn-pod-$1"
+          local k8s_mem_size="$2"
+          cat << EOF | kubectl apply -f -
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: $pod_name
+          namespace: stress-test
+          labels:
+            app: pod-churn
+        spec:
+          nodeSelector:
+            kubernetes.io/hostname: aks-f16-23743720-vmss000000
+          containers:
+          - name: pause
+            image: registry.k8s.io/pause:3.9
+            resources:
+              requests:
+                memory: "$k8s_mem_size"
+                cpu: "100m"
+              limits:
+                memory: "$k8s_mem_size"
+                cpu: "100m"
+          terminationGracePeriodSeconds: 0
+        EOF
+        }
+
+        # Function to delete pods older than X seconds
+        cleanup_old_pods() {
+          kubectl get pods -n stress-test -l app=pod-churn --no-headers | \
+          awk '{if ($5 > 90) print $1}' | \
+          xargs -r kubectl delete pod -n stress-test
+        }
+
+        echo "Starting pod churn stress test..."
+        counter=1
+        
+        while true; do
+          # Create 5 pods with different memory sizes
+          for size in "128Mi" "256Mi" "512Mi" "128Mi" "256Mi"; do
+            create_random_pod $counter $size
+            counter=$((counter + 1))
+            sleep 2
+          done
+          
+          # Wait a bit before cleanup
+          sleep 30
+          
+          # Cleanup old pods
+          cleanup_old_pods
+          
+          # Sleep before next batch
+          sleep 10
+          
+          # Log current pod count
+          pod_count=$(kubectl get pods -n stress-test -l app=pod-churn --no-headers | wc -l)
+          echo "[$(date)] Current pod-churn pod count: $pod_count"
+        done
+    resources:
+      requests:
+        memory: "256Mi"
+        cpu: "250m"
+      limits:
+        memory: "512Mi"
+        cpu: "500m" 
