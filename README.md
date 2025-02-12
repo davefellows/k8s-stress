@@ -101,6 +101,21 @@ A network interface monitoring test that:
 - Uses the `ip` command to list network interfaces
 - Tests netlink socket functionality
 
+### Pod Churn Stress Test
+**File:** `manifests/stress/pod-churn-stress.yaml`
+
+A pod lifecycle stress test that:
+- Creates and deletes pods continuously to stress kubelet and containerd
+- Uses minimal pause containers to focus on pod lifecycle operations
+- Configures RBAC (ServiceAccount, Role, RoleBinding) for pod management
+- Features:
+  - Creates batches of 5 pods every cycle
+  - Pods have varying memory sizes (128Mi, 256Mi, 512Mi)
+  - Automatically cleans up pods older than 90 seconds
+  - Uses minimal `pause:3.9` container image
+  - Zero grace period for quick pod termination
+  - Logs pod count metrics periodically
+
 ## Usage
 
 To deploy any of the stress tests, use:
