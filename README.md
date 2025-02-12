@@ -30,7 +30,7 @@ A memory-intensive workload designed to:
 - Test memory management and allocation
 
 ### Java Memory Leak Tests
-Two variants demonstrating different JVM memory behaviors in containers:
+Three variants demonstrating different JVM memory behaviors and allocation strategies:
 
 **Container-Aware JVM** (`manifests/stress/java-memory-leak.yaml`):
 - Uses container-aware JVM configuration (`-XX:+UseContainerSupport`)
@@ -41,15 +41,49 @@ Two variants demonstrating different JVM memory behaviors in containers:
 **Node-Level JVM** (`manifests/stress/java-memory-leak-nodejvm.yaml`):
 - Disables container awareness (`-XX:-UseContainerSupport`)
 - JVM sees full node resources
-- Uses fixed heap sizes (`-Xms4g -Xmx16g`)
+- Uses parallel allocation threads
+- Configures G1GC for aggressive memory use
 - Demonstrates potential memory issues when JVM isn't container-aware
-- Useful for testing container runtime OOM handling
+- Tests container runtime OOM handling and node pressure
 
-Both Java tests:
-- Create gradual memory leaks
-- Monitor JVM memory usage
-- Handle OutOfMemoryErrors
-- Generate GC logs for analysis
+**Native Memory Leak** (`manifests/stress/java-memory-leak-native.yaml`):
+- Uses JNA (Java Native Access) to allocate memory directly from OS
+- Bypasses JVM heap and direct buffer limits
+- Calls native malloc() directly for memory allocation
+- Small JVM heap (2GB) since memory is allocated natively
+- Tests Linux OOM killer behavior
+- Demonstrates native memory allocation impact
+
+Common features across all variants:
+- Gradual memory leak implementation
+- Real-time memory usage monitoring
+- Physical memory allocation forcing
+- Configurable chunk sizes and allocation rates
+- Error handling and recovery strategies
+- Support for privileged execution
+- Node targeting via nodeSelector
+- Resource requests/limits configuration
+
+Memory allocation strategies:
+1. Container-Aware: Uses JVM heap within container limits
+2. Node-Level: Uses JVM heap seeing node resources
+3. Native: Uses direct OS memory allocation via JNA
+
+Monitoring considerations:
+- JVM heap metrics
+- Native memory usage
+- Container memory stats
+- Node memory pressure
+- OOM kill events
+- Garbage collection logs
+
+Use these tests to:
+- Validate container memory limits
+- Test node memory pressure handling
+- Evaluate OOM killer behavior
+- Assess memory isolation
+- Benchmark memory allocation performance
+- Simulate memory leaks
 
 ### Memory-IO Combined Stress Test
 **File:** `manifests/stress/memory-io-stress.yaml`
